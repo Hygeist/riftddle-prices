@@ -1,5 +1,5 @@
 // Tournament deck lists for the site's Decks tab, from TopDeck.gg's API into meta/decks.json. Run by .github/workflows/sync.yml.
-// The rules: current set only (meta/sets.json), Constructed events of 250+ players, top 10, no identical lists.
+// The rules: current set only (meta/sets.json), Constructed events of 250+ players, top 10, each Legend's best list per event, no identical lists.
 // It asks once a day. Every other run only republishes the saved file, because sync.mjs rebuilds site/ each time.
 // TopDeck's terms: show a visible credit and link beside the data, and don't sell it. Each list's note and source link carry the credit.
 
@@ -43,13 +43,17 @@ async function fetchDecks(set) {
   const events = (await res.json()).sort((a, b) => b.startDate - a.startDate);
 
   const seen = new Set();
+  const legendsAt = new Set();
   const decks = [];
-  // Best placings first, so a list two players shared stays with the higher one.
+  // Best placings first, so an event keeps its best list of each Legend and a list two players shared stays with the higher one.
   const rows = events.flatMap((e) => (e.standings ?? []).slice(0, TOP).map((p, i) => ({ e, p, rank: i + 1 }))).sort((a, b) => a.rank - b.rank);
   for (const { e, p, rank } of rows) {
     const deck = p.deckObj;
     const legendName = Object.keys(deck?.Legend ?? {})[0];
     if (!legendName) continue;
+    const legendAt = `${e.TID}|${legendName}`;
+    if (legendsAt.has(legendAt)) continue;
+    legendsAt.add(legendAt);
     const print = fingerprint(deck);
     if (seen.has(print)) continue;
     seen.add(print);
