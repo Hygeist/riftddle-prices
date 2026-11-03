@@ -1,5 +1,5 @@
 // Pulls Riftbound listings from each store in stores.json, matches them to cards, and writes one small JSON per card to site/ for GitHub Pages.
-// Run by .github/workflows/sync.yml every 30 minutes. `node sync.mjs [domain ...]` runs only those stores.
+// Run by .github/workflows/sync.yml every 12 hours. `node sync.mjs [domain ...]` runs only those stores.
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

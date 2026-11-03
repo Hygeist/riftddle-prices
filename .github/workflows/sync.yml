@@ -2,7 +2,7 @@ name: Sync store prices
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '17 */12 * * *'
   workflow_dispatch:
 
 concurrency:
