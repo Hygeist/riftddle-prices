@@ -239,7 +239,10 @@ async function main() {
       }
     }
   }
-  writeFileSync(join(SITE, 'lows.json'), JSON.stringify({ updated: now, lows }));
+  // What one US dollar buys in each region's currency, so the Builder can compare TCGplayer's US prices with these. Empty if the lookup fails.
+  const rates = await fetch('https://api.frankfurter.dev/v1/latest?base=USD&symbols=CAD,GBP,EUR,AUD,SGD').then((r) => (r.ok ? r.json() : {}), () => ({}));
+  const usd = Object.fromEntries(Object.entries(REGION_CURRENCY).filter(([, c]) => rates.rates?.[c]).map(([region, c]) => [region, rates.rates[c]]));
+  writeFileSync(join(SITE, 'lows.json'), JSON.stringify({ updated: now, lows, usd }));
   const ok = report.filter((r) => r.ok);
   writeFileSync(join(SITE, 'status.json'), JSON.stringify({ updated: now, stores: allStores.length, ok: ok.length, cards: perCard.size, report: report.sort((a, b) => a.domain.localeCompare(b.domain)) }));
   writeFileSync(join(SITE, 'review.json'), JSON.stringify(review.slice(0, 5000), null, 0));
