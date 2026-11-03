@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const SITE = join(here, 'site');
 const STATE = join(here, 'state', 'listings.json');
-const CARDS_URL = 'https://riftddle.com/data/cards.json';
+const CARDS_URL = 'https://riftddle.1cshen.workers.dev/data/cards.json'; // riftddle.com's Cloudflare rules answer GitHub's runners with 403.
 const HEADERS = { 'User-Agent': 'RiftRiddlePriceCheck/1.0 (+https://riftddle.com)', Accept: 'application/json' };
 const AT_ONCE = 16;
 const PAUSE_MS = 400; // Between requests to the same store.
