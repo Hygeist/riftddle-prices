@@ -1,5 +1,5 @@
 // Pulls Riftbound listings from each store in stores.json, matches them to cards, and writes one small JSON per card to site/ for GitHub Pages.
-// Run by .github/workflows/sync.yml every 12 hours. `node sync.mjs [domain ...]` runs only those stores.
+// Run by .github/workflows/sync.yml hourly for 12 hours a day, a few stores each time, so each store is asked once a day. `node sync.mjs [domain ...]` runs only those stores.
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -10,15 +10,17 @@ const SITE = join(here, 'site');
 const STATE = join(here, 'state', 'listings.json');
 const CARDS_URL = 'https://riftddle.1cshen.workers.dev/data/cards.json'; // riftddle.com's Cloudflare rules answer GitHub's runners with 403.
 const HEADERS = { 'User-Agent': 'RiftRiddlePriceCheck/1.0 (+https://riftddle.com)', Accept: 'application/json' };
-const AT_ONCE = 4; // Shopify limits by IP across shops, so more than this gets runners 429s.
-const PAUSE_MS = 800; // Between requests to the same store.
-const BUDGET_MS = 20 * 60 * 1000; // Stop starting stores after this; the next run picks up the oldest first.
+const STORES_PER_RUN = 25; // Hourly for 12 hours, so 240 stores are each asked once a day with room for late or missed runs.
+const DUE_MS = 20 * 3600 * 1000; // A store asked more recently than this waits for tomorrow, even if it failed.
+const BUDGET_MS = 45 * 60 * 1000; // Stop starting stores after this; the next run picks up the oldest first.
 const MAX_PAGES = 40; // Per store, so one huge catalogue can't hold up the run.
-const KEEP_FAILED_MS = 24 * 3600 * 1000; // A store that fails keeps its last listings this long.
+const KEEP_FAILED_MS = 3 * 24 * 3600 * 1000; // A store that fails keeps its last listings this long.
 
 const REGION_CURRENCY = { US: 'USD', CA: 'CAD', GB: 'GBP', EU: 'EUR', AU: 'AUD', SG: 'SGD' };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const pause = () => sleep(2000 + Math.random() * 3000); // Between requests to the same store.
+const pauseBetweenStores = () => sleep(30000 + Math.random() * 30000);
 const key = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 async function getJson(url) {
@@ -133,7 +135,7 @@ async function riftboundCollections(domain) {
     const { collections = [] } = await getJson(`https://${domain}/collections.json?limit=250&page=${page}`);
     all.push(...collections);
     if (collections.length < 250) break;
-    await sleep(PAUSE_MS);
+    await pause();
   }
   return all
     .filter((c) => /riftbound/i.test(`${c.title} ${c.handle}`) && !SKIP_COLLECTION.test(c.handle) && c.products_count !== 0)
@@ -148,7 +150,7 @@ async function fetchProducts(domain) {
   const paths = collections.length ? collections.map((c) => `collections/${c.handle}/products.json`) : ['collections/all/products.json'];
   for (const path of paths) {
     for (let page = 1; budget > 0; page++, budget--) {
-      await sleep(PAUSE_MS);
+      await pause();
       const { products = [] } = await getJson(`https://${domain}/${path}?limit=250&page=${page}`);
       for (const p of products) seen.set(p.id, p);
       if (products.length < 250) break;
@@ -192,26 +194,26 @@ async function main() {
   const only = process.argv.slice(2);
   const stores = JSON.parse(readFileSync(join(here, 'stores.json'), 'utf8')).filter((s) => !only.length || only.includes(s.domain));
   const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
-  stores.sort((a, b) => (state[a.domain]?.t ?? 0) - (state[b.domain]?.t ?? 0));
   const now = Date.now();
+  const lastAsked = (s) => state[s.domain]?.tried ?? state[s.domain]?.t ?? 0;
+  const due = stores.filter((s) => only.length || now - lastAsked(s) > DUE_MS).sort((a, b) => lastAsked(a) - lastAsked(b)).slice(0, only.length || STORES_PER_RUN);
   const report = [];
   const review = [];
 
-  let next = 0;
-  await Promise.all(Array.from({ length: AT_ONCE }, async () => {
-    while (next < stores.length && Date.now() - now < BUDGET_MS) {
-      const store = stores[next++];
-      try {
-        const products = await fetchProducts(store.domain);
-        const rows = listingsFrom(products, store, index, review);
-        state[store.domain] = { t: now, rows };
-        report.push({ domain: store.domain, ok: true, products: products.length, listings: rows.length });
-      } catch (e) {
-        report.push({ domain: store.domain, ok: false, error: String(e.message ?? e) });
-        if (state[store.domain] && now - state[store.domain].t > KEEP_FAILED_MS) delete state[store.domain];
-      }
+  for (const store of due) {
+    if (Date.now() - now > BUDGET_MS) break;
+    if (report.length) await pauseBetweenStores();
+    try {
+      const products = await fetchProducts(store.domain);
+      const rows = listingsFrom(products, store, index, review);
+      state[store.domain] = { t: now, tried: now, rows };
+      report.push({ domain: store.domain, ok: true, products: products.length, listings: rows.length });
+    } catch (e) {
+      report.push({ domain: store.domain, ok: false, error: String(e.message ?? e) });
+      const held = state[store.domain] ?? { t: 0, rows: [] };
+      state[store.domain] = { ...held, tried: now, rows: now - held.t > KEEP_FAILED_MS ? [] : held.rows };
     }
-  }));
+  }
 
   // One file per card, so the popup downloads only what it shows.
   rmSync(SITE, { recursive: true, force: true });
@@ -244,7 +246,7 @@ async function main() {
   const usd = Object.fromEntries(Object.entries(REGION_CURRENCY).filter(([, c]) => rates.rates?.[c]).map(([region, c]) => [region, rates.rates[c]]));
   writeFileSync(join(SITE, 'lows.json'), JSON.stringify({ updated: now, lows, usd }));
   const ok = report.filter((r) => r.ok);
-  writeFileSync(join(SITE, 'status.json'), JSON.stringify({ updated: now, stores: allStores.length, ok: ok.length, cards: perCard.size, report: report.sort((a, b) => a.domain.localeCompare(b.domain)) }));
+  writeFileSync(join(SITE, 'status.json'), JSON.stringify({ updated: now, stores: allStores.length, listing: Object.values(state).filter((h) => h.rows.length).length, asked: report.length, ok: ok.length, cards: perCard.size, report: report.sort((a, b) => a.domain.localeCompare(b.domain)) }));
   writeFileSync(join(SITE, 'review.json'), JSON.stringify(review.slice(0, 5000), null, 0));
   writeFileSync(join(SITE, 'index.html'), '<!doctype html><title>RiftRiddle store prices</title><p>Data files for <a href="https://riftddle.com">riftddle.com</a>.</p>');
 
@@ -252,7 +254,7 @@ async function main() {
   writeFileSync(STATE, JSON.stringify(state));
   writeHistory(perCard, now);
 
-  console.log(`${ok.length}/${stores.length} stores ok, ${perCard.size}/${db.cards.length} cards with listings, ${report.reduce((n, r) => n + (r.listings ?? 0), 0)} listings, ${review.length} for review`);
+  console.log(`${ok.length}/${report.length} stores ok, ${perCard.size}/${db.cards.length} cards with listings, ${report.reduce((n, r) => n + (r.listings ?? 0), 0)} listings, ${review.length} for review`);
   for (const r of report.filter((x) => !x.ok)) console.log(`failed ${r.domain}: ${r.error}`);
 }
 
