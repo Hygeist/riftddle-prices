@@ -39,9 +39,19 @@ jobs:
           node movers/snapshot.mjs
           curl -fsS -A 'RiftRiddlePriceCheck/1.0 (+https://riftddle.com)' -o "$RUNNER_TEMP/cards.json" https://riftddle.1cshen.workers.dev/data/cards.json
           node movers/movers.mjs movers/price-history.jsonl "$RUNNER_TEMP/cards.json" site/movers.json
+      # Asks zero.gg once a week. A problem here keeps the last report and must not stop the rest publishing.
+      - name: Update the Meta report
+        continue-on-error: true
+        run: node meta/report.mjs
+      # Asks TopDeck.gg once a day. A problem here keeps the last lists.
+      - name: Update tournament decks
+        continue-on-error: true
+        run: node meta/decks.mjs
+        env:
+          TOPDECK_API_KEY: ${{ secrets.TOPDECK_API_KEY }}
       - name: Save the day's prices
         run: |
-          git add history movers
+          git add history movers meta
           if ! git diff --cached --quiet; then
             git config user.name 'riftddle-prices'
             git config user.email 'actions@users.noreply.github.com'
