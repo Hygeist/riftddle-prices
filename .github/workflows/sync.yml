@@ -43,12 +43,20 @@ jobs:
       - name: Update the Meta report
         continue-on-error: true
         run: node meta/report.mjs
+      # Writes a News tile for each event in the report, using the card data the Movers step fetched. A problem here keeps the last tiles.
+      - name: Update tournament news
+        continue-on-error: true
+        run: node meta/tournament-news.mjs "$RUNNER_TEMP/cards.json"
       # Asks TopDeck.gg once a day. A problem here keeps the last lists.
       - name: Update tournament decks
         continue-on-error: true
         run: node meta/decks.mjs
         env:
           TOPDECK_API_KEY: ${{ secrets.TOPDECK_API_KEY }}
+      # Asks Riot's news page once a day. A problem here keeps the last headlines.
+      - name: Update Riot news
+        continue-on-error: true
+        run: node meta/news.mjs
       - name: Save the day's prices
         run: |
           git add history movers meta
