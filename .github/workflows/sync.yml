@@ -32,9 +32,16 @@ jobs:
           key: state-${{ github.run_id }}
           restore-keys: state-
       - run: node sync.mjs
-      - name: Save the day's lowest prices
+      # A Movers problem must not stop store prices publishing. The site falls back to its own copy if movers.json is missing.
+      - name: Rank Movers
+        continue-on-error: true
         run: |
-          git add history
+          node movers/snapshot.mjs
+          curl -fsS -A 'RiftRiddlePriceCheck/1.0 (+https://riftddle.com)' -o "$RUNNER_TEMP/cards.json" https://riftddle.1cshen.workers.dev/data/cards.json
+          node movers/movers.mjs movers/price-history.jsonl "$RUNNER_TEMP/cards.json" site/movers.json
+      - name: Save the day's prices
+        run: |
+          git add history movers
           if ! git diff --cached --quiet; then
             git config user.name 'riftddle-prices'
             git config user.email 'actions@users.noreply.github.com'
