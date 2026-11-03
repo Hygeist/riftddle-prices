@@ -1,0 +1,21 @@
+name: Check TopDeck coverage
+
+# Started by hand. Reads TopDeck.gg's API and prints what it holds; publishes nothing, so it can't touch the one Pages deploy in sync.yml.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node meta/topdeck-check.mjs
+        env:
+          TOPDECK_API_KEY: ${{ secrets.TOPDECK_API_KEY }}
