@@ -16,6 +16,8 @@ const BUDGET_MS = 20 * 60 * 1000; // Stop starting stores after this; the next r
 const MAX_PAGES = 40; // Per store, so one huge catalogue can't hold up the run.
 const KEEP_FAILED_MS = 24 * 3600 * 1000; // A store that fails keeps its last listings this long.
 
+const REGION_CURRENCY = { US: 'USD', CA: 'CAD', GB: 'GBP', EU: 'EUR', AU: 'AUD', SG: 'SGD' };
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const key = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -225,6 +227,19 @@ async function main() {
     }
   }
   for (const [id, listings] of perCard) writeFileSync(join(SITE, 'cards', `${id}.json`), JSON.stringify({ updated: now, listings }));
+  // The Builder's prices: each card's cheapest near-mint copy per region, in that region's currency, so one file prices a whole deck.
+  const lows = {};
+  for (const [id, listings] of perCard) {
+    for (const l of listings) {
+      if (l.q !== 'NM') continue;
+      for (const region of l.r) {
+        if (l.c !== REGION_CURRENCY[region]) continue;
+        const slot = (lows[id] ??= {});
+        if (slot[region] === undefined || l.p < slot[region]) slot[region] = l.p;
+      }
+    }
+  }
+  writeFileSync(join(SITE, 'lows.json'), JSON.stringify({ updated: now, lows }));
   const ok = report.filter((r) => r.ok);
   writeFileSync(join(SITE, 'status.json'), JSON.stringify({ updated: now, stores: allStores.length, ok: ok.length, cards: perCard.size, report: report.sort((a, b) => a.domain.localeCompare(b.domain)) }));
   writeFileSync(join(SITE, 'review.json'), JSON.stringify(review.slice(0, 5000), null, 0));
