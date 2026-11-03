@@ -10,8 +10,9 @@ const SITE = join(here, 'site');
 const STATE = join(here, 'state', 'listings.json');
 const CARDS_URL = 'https://riftddle.1cshen.workers.dev/data/cards.json'; // riftddle.com's Cloudflare rules answer GitHub's runners with 403.
 const HEADERS = { 'User-Agent': 'RiftRiddlePriceCheck/1.0 (+https://riftddle.com)', Accept: 'application/json' };
-const AT_ONCE = 16;
-const PAUSE_MS = 400; // Between requests to the same store.
+const AT_ONCE = 4; // Shopify limits by IP across shops, so more than this gets runners 429s.
+const PAUSE_MS = 800; // Between requests to the same store.
+const BUDGET_MS = 20 * 60 * 1000; // Stop starting stores after this; the next run picks up the oldest first.
 const MAX_PAGES = 40; // Per store, so one huge catalogue can't hold up the run.
 const KEEP_FAILED_MS = 24 * 3600 * 1000; // A store that fails keeps its last listings this long.
 
@@ -21,7 +22,7 @@ const key = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().repl
 async function getJson(url) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const r = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(20000) });
-    if (r.status === 429) { await sleep(5000); continue; }
+    if (r.status === 429) { await sleep(30000); continue; }
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   }
@@ -189,13 +190,14 @@ async function main() {
   const only = process.argv.slice(2);
   const stores = JSON.parse(readFileSync(join(here, 'stores.json'), 'utf8')).filter((s) => !only.length || only.includes(s.domain));
   const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
+  stores.sort((a, b) => (state[a.domain]?.t ?? 0) - (state[b.domain]?.t ?? 0));
   const now = Date.now();
   const report = [];
   const review = [];
 
   let next = 0;
   await Promise.all(Array.from({ length: AT_ONCE }, async () => {
-    while (next < stores.length) {
+    while (next < stores.length && Date.now() - now < BUDGET_MS) {
       const store = stores[next++];
       try {
         const products = await fetchProducts(store.domain);
