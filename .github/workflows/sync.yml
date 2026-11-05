@@ -43,6 +43,10 @@ jobs:
       - name: Update the Meta report
         continue-on-error: true
         run: node meta/report.mjs
+      # Adds the top 8 of each newly finished main event to the player history (every set, never reset). A problem here keeps the last history.
+      - name: Update player history
+        continue-on-error: true
+        run: node meta/players.mjs
       # Writes a News tile for each event in the report, using the card data the Movers step fetched. A problem here keeps the last tiles.
       - name: Update tournament news
         continue-on-error: true
